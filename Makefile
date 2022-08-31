@@ -45,4 +45,5 @@ valgrind: $(NAME)
 
 .PHONY: all clean fclean re
 
+
 #&.c : &.o libft.a 

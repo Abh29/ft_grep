@@ -1,5 +1,12 @@
 #include "ft_grep.h"
 
+#define MAX_MATCH   100     // max matches in one line
+
+#define F_MULTFILE  200
+#define F_EMPTLINE  201
+
+
+int exit_status = EXIT_SUCCESS;
 
 typedef struct s_grep
 {
@@ -7,19 +14,26 @@ typedef struct s_grep
     t_list      *files;
     t_list      *patterns_path;
     char        *patterns;
-    int         flags;  //eivclnhsfoX    // X for multiple files
+    int         flags;  //eivclnhsfoE
 }               t_grep;
 
-void    exit_perror(char *msg, int status){
-    if (msg)
+
+void    exit_perror(char *msg, int status, int mask){
+    if (msg && mask)
         perror(msg);
     exit(status);
 }
 
-void    exit_msg(char *msg, int status){
-    if (msg)
+void    exit_msg(char *msg, int status, int mask){
+    if (msg && mask)
         ft_putstr_fd(msg, 2);
     exit(status);
+}
+
+void    print_error(char *msg, int status, int mask){
+        if (msg && mask)
+            perror(msg);
+        exit_status = status;
 }
 
 void    init_grep(t_grep *arg)
@@ -33,7 +47,7 @@ void    init_grep(t_grep *arg)
     arg->flags = 0;
 }
 
-int     check_flag(t_grep *arg, char flag)
+int     check_flag(t_grep *arg, int flag)
 {
     if (arg == NULL)
         return (0);
@@ -59,14 +73,18 @@ int     check_flag(t_grep *arg, char flag)
         return ( (arg->flags & 1<< 8) != 0);
     case 'o':
         return ( (arg->flags & 1<< 9) != 0);
-    case 'X':
+    case 'E':
         return ( (arg->flags & 1<< 10) != 0);
+    case F_EMPTLINE:
+        return ( (arg->flags & 1<< 11) != 0);
+    case F_MULTFILE:
+        return ( (arg->flags & 1<< 12) != 0);
     default:
         return (0);
     }
 }
 
-void    set_flag(t_grep *arg, char flag)
+void    set_flag(t_grep *arg, int flag)
 {
     if (arg == NULL)
         return ;
@@ -102,11 +120,17 @@ void    set_flag(t_grep *arg, char flag)
         case 'o':
             arg->flags |= 1 << 9; 
             break;
-        case 'X':
+        case 'E':
             arg->flags |= 1 << 10;
             break;
+        case F_EMPTLINE:
+            arg->flags |= 1 << 11;
+            break;
+        case F_MULTFILE:
+            arg->flags |= 1 << 12;
+            break;
         default:
-            exit_msg("grep: invalid option\n", 2);
+            exit_msg("grep: invalid option\n", 2, 1);
     }
 }
 
@@ -132,11 +156,11 @@ void    read_args(t_grep *arg, int argc, char **argv){
             }
         }else if (argv[i][1] == 'f'){
             if (++i == argc)
-                exit_msg("grep: option requires an argument -- 'f'\n", 2);
+                exit_msg("grep: option requires an argument -- 'f'\n", 2, 1);
             ft_lstadd_back(&(arg->patterns_path), ft_lstnew(ft_strdup(argv[i])));
         }else if (argv[i][1] == 'e'){
             if (++i == argc)
-                exit_msg("grep: option requires an argument -- 'e'\n", 2);
+                exit_msg("grep: option requires an argument -- 'e'\n", 2, 1);
            ft_lstadd_back(&(arg->patterns_list), ft_lstnew(ft_strdup(argv[i]))); 
         }
         i++;
@@ -151,11 +175,11 @@ void    read_args(t_grep *arg, int argc, char **argv){
         ft_lstadd_back(&(arg->files), ft_lstnew(ft_strdup(argv[i++])));
     
     if (!arg->patterns && !arg->patterns_path && !arg->patterns_list)
-        exit_msg("Usage: grep [OPTION]... PATTERNS [FILE]...\n", 2);
+        exit_msg("Usage: grep [OPTION]... PATTERNS [FILE]...\n", 2, 1);
     
     // set flag X to 1 if there are multiple files and not flag -h
     if (arg->files && arg->files->next && !check_flag(arg, 'h'))
-        set_flag(arg, 'X');
+        set_flag(arg, F_MULTFILE);
 }
 
 void    str_tolower(char *str){
@@ -168,11 +192,12 @@ void    str_tolower(char *str){
 }
 
 // TODO: check empty lines in patterns file
+
 void    split_patterns(t_grep *arg){
     char    **spt;
     char    **p;
     char    *line;
-    int     fd;
+    int     fd, empty = 0;
     t_list  *tmp;
 
     if (arg == NULL)
@@ -191,13 +216,16 @@ void    split_patterns(t_grep *arg){
         tmp = arg->patterns_path;
         while (tmp){
             if ((fd = open(tmp->content, O_RDONLY)) < 0)
-                exit_perror("error reading patterns file !\n", 2);
+                exit_perror("error reading patterns file:", 2, check_flag(arg, 's') == 0);
             while ((line = ft_get_next_line(fd))){
-                // if (*line == 0)
-                // {
-                //     free(line);
-                //     continue;
-                // }
+                if (empty == 1 && empty++)
+                    set_flag(arg, F_EMPTLINE);
+                if (*line == 0)
+                {
+                    free(line);
+                    empty++;
+                    continue;
+                }
                 ft_lstadd_back(&(arg->patterns_list), ft_lstnew(line));
             }
             close(fd);
@@ -214,79 +242,112 @@ void    compile_patterns(t_grep *arg){
 
     if (arg == NULL)
         return ;
-    f = check_flag(arg, 'i') == 1 ? REG_ICASE : 0;
+    f =  check_flag(arg, 'i') ? REG_ICASE : 0;
+    f |= check_flag(arg, 'E') ? REG_EXTENDED : 0;
     p = arg->patterns_list;
     while (p)
     {
         re = malloc(sizeof(regex_t));
         if (! re)
-            exit_perror("allocation t_regex: ", 2);
-        if (regcomp(re, p->content, f | REG_EXTENDED) != 0)
-            exit_perror("regcomp error: ", 2);
+            exit_perror("allocation t_regex: ", 2, 1);
+        if (regcomp(re, p->content, f) != 0)
+            exit_perror("regcomp error: ", 2, 1);
         free(p->content);
         p->content = re;
         p = p->next;
     }
 }
 
-int     match(t_grep *arg, char *str){
-    t_list  *p;
+int     match(t_grep *arg, char *str, regmatch_t pmatch[]){
+    t_list      *p;
+    regmatch_t  min;
+    int         out;
 
     if (!arg || !arg->patterns_list || !str)
         return (0);
-
-    p = arg->patterns_list;
-    while (p)
+    out = 0;
+    while (*str)
     {
-        if (regexec(p->content, str, 0, NULL, 0) == 0)
-            return (1);
-        p = p->next;
+        p = arg->patterns_list;
+        min.rm_eo = ft_strlen(str);
+        while (p)
+        {
+            if (regexec(p->content, str, 1, pmatch, 0) == 0)
+            {
+                out = 1;
+                if (check_flag(arg, 'l'))
+                    return (1);
+                if (pmatch[0].rm_eo != -1 && pmatch[0].rm_eo < min.rm_eo)
+                    ft_memcpy(&min, pmatch, sizeof(regmatch_t));
+            }
+            p = p->next;
+        }
     }
-    return (0);
+    return (out);
+}
+
+void   print_matches(char *str, regmatch_t pmatch[]){
+    if (str == NULL)
+        return ;
+    printf("%s\t", str);
+    for (int i = 0;  i < 5; i++)
+    {
+        printf("%d - %d\n", pmatch[i].rm_so, pmatch[i].rm_eo);
+    }
+    
 }
 
 int    match_file(t_grep *arg, char *file_path){
-    int     fd;
-    char    *line;
-    int     count;
-    int     l;
+    int         fd;
+    char        *line;
+    int         c_matches;
+    int         c_lines;
+    regmatch_t  pmatch[2];
 
     if( arg == NULL)
-        return 0;
-    if (file_path){
-        if ((fd = open(file_path, O_RDONLY)) < 0)
-            exit_perror("open file_path error: ", 2);
-    }
-    else
+        return (0);
+    if (file_path == NULL || ft_strncmp(file_path, "-", ft_strlen(file_path)) == 0 || \
+        ft_strncmp(file_path, "--", ft_strlen(file_path)) == 0)
+    {
         fd = 0;
-    
-    count = 0;
-    l = 1;
+        file_path = "(standard input)";
+    }
+    else if ((fd = open(file_path, O_RDONLY)) < 0)
+    {
+        print_error("open file_path error: ", 2, check_flag(arg, 's') == 0);
+        return (0);
+    }
+
+    c_matches = 0;
+    c_lines = 1;
     while ((line = ft_get_next_line(fd)) != NULL){
-        if (match(arg, line) != check_flag(arg, 'v')){ // logical XOR
-            // put the outputing logic
-            if (check_flag(arg, 'X') && !check_flag(arg, 'l'))
-                printf("%s:", file_path);
+        if (match(arg, line, pmatch) != check_flag(arg, 'v')){ // logical XOR
+            c_matches++;
+            if (check_flag(arg, F_MULTFILE) && !check_flag(arg, 'l'))
+                printf("%s%s%s:%s", S21_MAGENTA, file_path, S21_CYAN, S21_WHITE);
             if (check_flag(arg, 'n') && !check_flag(arg, 'l'))
-                printf("%d:", l);
+                printf("%s%d%s:%s", S21_GREEN, c_lines, S21_CYAN, S21_WHITE);
             if (!check_flag(arg, 'c') && !check_flag(arg, 'l'))
-                printf("%s\n", line);
-            count++;
+                //printf("%s\n", line);
+                print_matches(line, pmatch);
+            if (check_flag(arg, 'l')){
+                printf("%s%s%s\n", S21_MAGENTA ,file_path, S21_WHITE);
+                free(line);
+                break;
+            }
         }
         free(line);
-        l++;
+        c_lines++;
     }
-    if (check_flag(arg, 'l') && count){
-        printf("%s\n", file_path);
-    }else if (check_flag(arg, 'c') && count){
-        if (check_flag(arg, 'X'))
-            printf("%s:", file_path);
-        printf("%d\n", count);
+    if (check_flag(arg, 'c') && c_matches){
+        if (check_flag(arg, F_MULTFILE))
+            printf("%s%s%s:%s", S21_MAGENTA, file_path, S21_CYAN, S21_WHITE);
+        printf("%d\n", c_matches);
     }
 
     if (fd)
         close(fd);
-    return (count);
+    return (c_matches);
 }
 
 void    match_files_list(t_grep *arg){
@@ -382,7 +443,7 @@ int main(int argc, char **argv)
 
     split_patterns(&data);
 
-    print_args(&data);
+    //print_args(&data);
 
     compile_patterns(&data);
 
@@ -390,5 +451,46 @@ int main(int argc, char **argv)
 
     free_args(&data);
 
-    return 0;
+    return exit_status;
+}
+
+
+int main22()
+{
+   int i = 0;
+   int res;
+   int len;
+   char result[BUFSIZ];
+   char err_buf[BUFSIZ];
+   char* src = "hello world";  
+
+   const char* pattern = "(\\w+) (\\w+)";
+   regex_t preg;
+
+   regmatch_t pmatch[10];
+
+   if( (res = regcomp(&preg, pattern, REG_EXTENDED)) != 0)
+   {
+      regerror(res, &preg, err_buf, BUFSIZ);
+      printf("regcomp: %s\n", err_buf);
+      exit(res);
+   }
+
+   res = regexec(&preg, src, 10, pmatch, REG_NOTBOL);
+   //~ res = regexec(&preg, src, 10, pmatch, 0);
+   //~ res = regexec(&preg, src, 10, pmatch, REG_NOTEOL);
+   if(res == REG_NOMATCH)
+   {
+      printf("NO match\n");
+      exit(0);
+   }
+   for (i = 0; pmatch[i].rm_so != -1; i++)
+   {
+      len = pmatch[i].rm_eo - pmatch[i].rm_so;
+      memcpy(result, src + pmatch[i].rm_so, len);
+      result[len] = 0;
+      printf("num %d: '%s'\n", i, result);
+   }
+   regfree(&preg);
+   return 0;
 }

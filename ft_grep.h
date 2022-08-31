@@ -11,8 +11,6 @@ typedef struct s_list
 }				t_list;
 #endif
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -21,7 +19,17 @@ typedef struct s_list
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
 
+
+
+#define S21_WHITE   "\x1b[0m"
+#define S21_RED     "\x1b[31m"
+#define S21_GREEN   "\x1b[32m"
+#define S21_YELLOW  "\x1b[33m"
+#define S21_BLUE    "\x1b[34m"
+#define S21_MAGENTA "\x1b[35m"
+#define S21_CYAN    "\x1b[36m"
 
 
 
