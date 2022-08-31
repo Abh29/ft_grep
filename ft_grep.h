@@ -24,7 +24,7 @@ typedef struct s_list
 
 
 #define S21_WHITE   "\x1b[0m"
-#define S21_RED     "\x1b[31m"
+#define S21_RED     "\x1b[1;91m" // Bold Red
 #define S21_GREEN   "\x1b[32m"
 #define S21_YELLOW  "\x1b[33m"
 #define S21_BLUE    "\x1b[34m"

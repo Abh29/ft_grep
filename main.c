@@ -4,6 +4,7 @@
 
 #define F_MULTFILE  200
 #define F_EMPTLINE  201
+#define F_COLORED   300
 
 
 int exit_status = EXIT_SUCCESS;
@@ -49,19 +50,6 @@ void    print_error(char *msg, int status, int mask){
         exit_status = status;
 }
 
-void    init_grep(t_grep *arg)
-{
-    if (arg == NULL)
-        return;
-    arg->files = NULL;
-    arg->patterns_path = NULL;
-    arg->patterns_list = NULL;
-    arg->patterns = NULL;
-    arg->flags = 0;
-    arg->c_lines = 1;
-    arg->c_matches = 0;
-}
-
 int     check_flag(t_grep *arg, int flag)
 {
     if (arg == NULL)
@@ -94,6 +82,8 @@ int     check_flag(t_grep *arg, int flag)
         return ( (arg->flags & 1<< 11) != 0);
     case F_MULTFILE:
         return ( (arg->flags & 1<< 12) != 0);
+    case F_COLORED:
+        return ( (arg->flags & 1<< 13) != 0);
     default:
         return (0);
     }
@@ -144,9 +134,27 @@ void    set_flag(t_grep *arg, int flag)
         case F_MULTFILE:
             arg->flags |= 1 << 12;
             break;
+        case F_COLORED:
+            arg->flags |= 1 << 13;
+            break;
         default:
             exit_msg("grep: invalid option\n", 2, 1);
     }
+}
+
+void    init_grep(t_grep *arg)
+{
+    if (arg == NULL)
+        return;
+    arg->files = NULL;
+    arg->patterns_path = NULL;
+    arg->patterns_list = NULL;
+    arg->patterns = NULL;
+    arg->flags = 0;
+    if (isatty(1))
+        set_flag(arg, F_COLORED);
+    arg->c_lines = 1;
+    arg->c_matches = 0;
 }
 
 void    read_args(t_grep *arg, int argc, char **argv){
@@ -312,28 +320,74 @@ int     match(t_grep *arg, char *str, regmatch_t pmatch[], t_list **matches){
     return (out);
 }
 
-void   print_matches(t_grep *arg, char *str, t_list *matches, char *file_path){
+void    print_prifix(t_grep *arg, char *str, char *file_path){
+    (void) str;
 
+    if (check_flag(arg, F_MULTFILE) && !check_flag(arg, 'l'))
+    {
+        if (check_flag(arg, F_COLORED))
+            printf("%s%s%s:%s", S21_MAGENTA, file_path, S21_CYAN, S21_WHITE);
+        else
+            printf("%s:", file_path);
+    }
+        
+    if (check_flag(arg, 'n') && !check_flag(arg, 'l'))
+    {
+        if (check_flag(arg, F_COLORED))
+            printf("%s%d%s:%s", S21_GREEN, arg->c_lines, S21_CYAN, S21_WHITE);
+        else
+            printf("%d:", arg->c_lines);
+    }
+}
+
+void   print_matches_lines(t_grep *arg, char *str, t_list *matches, char *file_path){
+
+    t_list  *p;
     (void) arg;
     (void) file_path;
     if (str == NULL)
         return ;
-
-    t_list *p = matches;
+    
+    print_prifix(arg, str, file_path);
+    p = matches;
     while (p)
     {
         regmatch_t *rm = p->content;
         for (int i = 0; i < rm->rm_so && *str; i++)
             putc(*str++, stdout);
-        fputs(S21_RED, stdout);
+        if (check_flag(arg, F_COLORED))            
+            fputs(S21_RED, stdout);
         for (int i = rm->rm_so; i < rm->rm_eo && *str; i++)
             putc(*str++, stdout);
-        fputs(S21_WHITE, stdout);
+        if (check_flag(arg, F_COLORED))
+            fputs(S21_WHITE, stdout);
         p = p->next;
     }
     if (*str)
         printf("%s", str);
     putc('\n', stdout);
+}
+
+void    print_matches_clean(t_grep *arg, char *str, t_list *matches, char *file_path){
+     t_list  *p;
+
+    if (str == NULL)
+        return ;
+    p = matches;
+    while (p)
+    {
+        regmatch_t *rm = p->content;
+        print_prifix(arg, str, file_path);
+        for (int i = 0; i < rm->rm_so && *str; i++, str++);
+        if (check_flag(arg, F_COLORED))            
+            fputs(S21_RED, stdout);
+        for (int i = rm->rm_so; i < rm->rm_eo && *str; i++)
+            putc(*str++, stdout);
+        if (check_flag(arg, F_COLORED))
+            fputs(S21_WHITE, stdout);
+        putc('\n', stdout);
+        p = p->next;
+    }
 }
 
 int    match_file(t_grep *arg, char *file_path){
@@ -360,14 +414,18 @@ int    match_file(t_grep *arg, char *file_path){
     while ((line = ft_get_next_line(fd)) != NULL){
         if (match(arg, line, pmatch, &matches) != check_flag(arg, 'v')){ // logical XOR
             arg->c_matches++;
-            if (check_flag(arg, F_MULTFILE) && !check_flag(arg, 'l'))
-                printf("%s%s%s:%s", S21_MAGENTA, file_path, S21_CYAN, S21_WHITE);
-            if (check_flag(arg, 'n') && !check_flag(arg, 'l'))
-                printf("%s%d%s:%s", S21_GREEN, arg->c_lines, S21_CYAN, S21_WHITE);
             if (!check_flag(arg, 'c') && !check_flag(arg, 'l'))
-                print_matches(arg, line, matches, file_path);
+            {
+                if (check_flag(arg, 'o'))
+                    print_matches_clean(arg, line, matches, file_path);
+                else
+                    print_matches_lines(arg, line, matches, file_path);
+            }  
             if (check_flag(arg, 'l')){
-                printf("%s%s%s\n", S21_MAGENTA ,file_path, S21_WHITE);
+                if (check_flag(arg, F_COLORED))
+                    printf("%s%s%s\n", S21_MAGENTA ,file_path, S21_WHITE);
+                else
+                    printf("%s\n", file_path);
                 free(line);
                 break;
             }
@@ -378,7 +436,12 @@ int    match_file(t_grep *arg, char *file_path){
     }
     if (check_flag(arg, 'c') && arg->c_lines){
         if (check_flag(arg, F_MULTFILE))
-            printf("%s%s%s:%s", S21_MAGENTA, file_path, S21_CYAN, S21_WHITE);
+        {
+            if (check_flag(arg, F_COLORED))
+                printf("%s%s%s:%s", S21_MAGENTA, file_path, S21_CYAN, S21_WHITE);
+            else
+                printf("%s:", file_path);
+        }
         printf("%d\n", arg->c_matches);
     }
 
