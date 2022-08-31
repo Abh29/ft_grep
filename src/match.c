@@ -78,6 +78,10 @@ int    match_file(t_grep *arg, char *file_path){
                 free(line);
                 break;
             }
+        }else if (check_flag(arg, F_EMPTLINE) && !check_flag(arg, 'o'))
+        {
+            print_prifix(arg, line, file_path);
+            printf("%s\n", line);
         }
         free(line);
         ft_lstclear(&matches, free);
