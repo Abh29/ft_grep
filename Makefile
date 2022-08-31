@@ -33,6 +33,7 @@ clean:
 	@rm -f $(NAME)
 
 fclean: clean
+	@rm -f valgrind-out.txt
 
 re: fclean all
 
