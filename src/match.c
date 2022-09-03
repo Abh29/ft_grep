@@ -106,7 +106,7 @@ int    match_file(t_grep *arg, char *file_path){
         ft_lstclear(&matches, free);
         arg->c_lines++;
     }
-    if (check_flag(arg, 'c') && arg->c_lines){
+    if (!check_flag(arg, 'l') && check_flag(arg, 'c') && arg->c_lines){
         if (check_flag(arg, F_MULTFILE))
         {
             if (check_flag(arg, F_COLORED))
