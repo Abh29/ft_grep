@@ -4,12 +4,14 @@ int     match(t_grep *arg, char *str, regmatch_t pmatch[], t_list **matches){
     t_list      *p;
     regmatch_t  min, *tmp;
     int         out;
+    int         flag;
 
     if (!arg || !arg->patterns_list || !str)
         return (0);
     out = 0;
     if (*str == 0 && check_flag(arg, F_EMPTLINE))
         return (1);
+    flag = 0;
     do {
         p = arg->patterns_list;
         min.rm_so = __INT32_MAX__;
@@ -17,7 +19,7 @@ int     match(t_grep *arg, char *str, regmatch_t pmatch[], t_list **matches){
         while (p)
         {
             
-            if (regexec(p->content, str, 1, pmatch, 0) == 0)
+            if (regexec(p->content, str, 1, pmatch, flag) == 0)
             {
                 out = 1;
                 if (check_flag(arg, 'l'))
@@ -41,6 +43,7 @@ int     match(t_grep *arg, char *str, regmatch_t pmatch[], t_list **matches){
             ft_memcpy(tmp, &min, sizeof(regmatch_t));
             ft_lstadd_back(matches, ft_lstnew(tmp));
             str += min.rm_eo;
+            flag |= REG_NOTBOL;
         }else
             break;
         

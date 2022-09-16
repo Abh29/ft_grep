@@ -15,7 +15,7 @@ FBSIZE = -D BUFFER_SIZE=42
 
 HEADER = ft_grep.h
 
-NAME = s21_grep
+NAME = ft_grep
 
 ARGS = ""
 
